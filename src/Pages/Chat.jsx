@@ -1,250 +1,163 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
+import { Send, MessageCircle } from "lucide-react";
 import axios from "axios";
 import { base_url } from "../constants/axiosConfig";
-import { useMutation } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
 
-export default function Chat() {
+export default function ModernChatInterface() {
   const [message, setMessage] = useState("");
-  const [conversation, setConversation] = useState([]);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [error, setError] = useState("");
-  const messagesEndRef = useRef(null);
+  const [messages, setMessages] = useState([
+    {
+      id: 1,
+      text: "Hello! How can I assist you today?",
+      isBot: true,
+      timestamp: new Date(),
+    },
+  ]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const handleSendMessage = async () => {
+    if (message.trim()) {
+      const newMessage = {
+        id: messages.length + 1,
+        text: message,
+        isBot: false,
+        timestamp: new Date(),
+      };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [conversation]);
+      setMessages((prev) => [...prev, newMessage]);
+      setMessage("");
+      setIsLoading(true);
 
-  const postMessage = async () => {
-    try {
-      if (!message.trim() && !selectedFile) {
-        throw new Error("Prompt or image is required");
+      try {
+        const response = await axios.post(`${base_url}/api/generate`, {
+          prompt: message,
+        });
+
+        console.log(response.data);
+        const botResponse = {
+          id: messages.length + 2,
+
+          text: response.data.response,
+          isBot: true,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botResponse]);
+      } catch (error) {
+        console.error("Error sending message:", error);
+        // Handle error appropriately
+        const errorMessage = {
+          id: messages.length + 2,
+          text: "Sorry, I encountered an error. Please try again.",
+          isBot: true,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      } finally {
+        setIsLoading(false);
       }
-
-      const formData = new FormData();
-      if (message.trim()) {
-        formData.append("prompt", message.trim());
-      }
-      if (selectedFile) {
-        formData.append("image", selectedFile);
-      }
-
-      // For debugging
-      for (let pair of formData.entries()) {
-        console.log(pair[0] + ": " + pair[1]);
-      }
-
-      const response = await axios.post(`${base_url}/api/generate`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      if (!response.data || !response.data.response) {
-        throw new Error("Invalid response from server");
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error("Error in postMessage:", error);
-      throw error;
     }
   };
 
-  const mutation = useMutation({
-    mutationFn: postMessage,
-    onMutate: () => {
-      setError(""); // Clear any previous errors
-      // Add user message immediately
-      setConversation((prev) => [
-        ...prev,
-        {
-          role: "user",
-          content:
-            message.trim() ||
-            (selectedFile
-              ? `Sent image: ${selectedFile.name}`
-              : "Sent an image"),
-        },
-        { role: "assistant", content: "typing...", isTyping: true },
-      ]);
-    },
-    onSuccess: (data) => {
-      setMessage("");
-      setSelectedFile(null);
-      // Replace typing indicator with actual response
-      setConversation((prev) => {
-        const newConversation = [...prev];
-        const typingIndex = newConversation.findIndex(
-          (msg) => msg.isTyping === true
-        );
-        if (typingIndex !== -1) {
-          newConversation[typingIndex] = {
-            role: "assistant",
-            content: data.response,
-          };
-        }
-        return newConversation;
-      });
-    },
-    onError: (err) => {
-      const errorMessage =
-        err.response?.data?.message ||
-        err.message ||
-        "Sorry, there was an error processing your request.";
-      setError(errorMessage);
-      // Replace typing indicator with error message
-      setConversation((prev) => {
-        const newConversation = [...prev];
-        const typingIndex = newConversation.findIndex(
-          (msg) => msg.isTyping === true
-        );
-        if (typingIndex !== -1) {
-          newConversation[typingIndex] = {
-            role: "assistant",
-            content: errorMessage,
-          };
-        }
-        return newConversation;
-      });
-    },
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (mutation.isPending) return; // Prevent multiple submissions
-    mutation.mutate();
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        // 5MB limit
-        setError("File size should be less than 5MB");
-        return;
-      }
-      setSelectedFile(file);
-      setError(""); // Clear any previous errors
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-blue-500 scrollbar-track-gray-800 hover:scrollbar-thumb-blue-400 scrollbar-thumb-rounded-full scrollbar-track-rounded-full">
-        {conversation.map((msg, index) => (
-          <div
-            key={index}
-            className={`flex ${
-              msg.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-[70%] rounded-lg p-3 ${
-                msg.role === "user"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-800 text-gray-100"
-              }`}
-            >
-              {msg.role === "assistant" ? (
-                msg.isTyping ? (
-                  <div className="flex space-x-2">
-                    <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0ms" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "150ms" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "300ms" }}
-                    ></div>
-                  </div>
-                ) : (
-                  <div className="prose prose-sm max-w-none prose-invert">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
-                )
-              ) : (
-                msg.content
-              )}
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
+    <div className="h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col overflow-hidden">
+      <style jsx>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
+      {/* Header */}
+      <div className="bg-white/10 backdrop-blur-lg border-b border-white/20 p-4">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center space-x-3"></div>
+          <div className="bg-green-500 w-3 h-3 rounded-full animate-pulse"></div>
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="px-4 py-2 bg-red-900/50 text-red-200 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Input Form */}
-      <form
-        onSubmit={handleSubmit}
-        className="p-4 bg-gray-800 border-t border-gray-700"
+      {/* Messages Area */}
+      <div
+        className="flex-1 overflow-y-auto p-6 scrollbar-hide"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
-        <div className="flex items-center space-x-2">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="hidden"
-            id="file-upload"
-          />
-          <label
-            htmlFor="file-upload"
-            className="cursor-pointer p-2 text-gray-400 hover:text-gray-200"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+        <div className="w-full space-y-6">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${
+                msg.isBot ? "justify-start" : "justify-end"
+              } animate-in slide-in-from-bottom-2 duration-300`}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-          </label>
-          <input
-            type="text"
-            value={message}
-            onChange={(e) => {
-              setMessage(e.target.value);
-              setError(""); // Clear error when user types
-            }}
-            placeholder="Type your message..."
-            disabled={mutation.isPending}
-            className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100 placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <button
-            type="submit"
-            disabled={mutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
-          >
-            {mutation.isPending ? "Sending..." : "Send"}
-          </button>
+              <div
+                className={`flex items-end space-x-2 ${
+                  msg.isBot ? "" : "flex-row-reverse space-x-reverse"
+                }`}
+              >
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                  <img
+                    src={
+                      msg.isBot
+                        ? "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face"
+                        : "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=face"
+                    }
+                    alt={msg.isBot ? "Receiver" : "User"}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div
+                  className={`max-w-xs lg:max-w-md px-6 py-4 rounded-2xl ${
+                    msg.isBot
+                      ? "bg-white/10 backdrop-blur-sm border border-white/20 text-white"
+                      : "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                  }`}
+                >
+                  <p className="text-sm leading-relaxed">{msg.text}</p>
+                  <p className="text-xs opacity-70 mt-2">
+                    {msg.timestamp.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-        {selectedFile && (
-          <div className="mt-2 text-sm text-gray-400">
-            Selected file: {selectedFile.name}
+      </div>
+
+      {/* Input Area */}
+      <div className="p-6 bg-white/5 backdrop-blur-lg border-t border-white/10">
+        <div className="w-full">
+          <div className="flex items-end space-x-4">
+            <div className="flex-1 relative">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message..."
+                className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-6 py-4 text-white placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all duration-200"
+                rows="3"
+              />
+            </div>
+            <button
+              onClick={handleSendMessage}
+              disabled={!message.trim() || isLoading}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white p-4 rounded-2xl transition-all duration-200 transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+            >
+              {isLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+            </button>
           </div>
-        )}
-      </form>
+        </div>
+      </div>
     </div>
   );
 }
